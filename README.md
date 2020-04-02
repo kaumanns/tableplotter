@@ -21,7 +21,6 @@ This file also contains scaling factors for the data points.
 ```
 git clone <repository url>
 cd <repository url>
-make dependencies
 ```
 
 ## Usage
