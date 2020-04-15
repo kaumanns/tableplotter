@@ -23,6 +23,12 @@ git clone <repository url>
 cd <repository url>
 ```
 
+## Unit tests
+
+```
+make test
+```
+
 ## Usage
 
 ```

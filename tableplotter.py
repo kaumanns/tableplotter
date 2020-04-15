@@ -11,107 +11,155 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 
-def _xvalue_offset(num_xticks, num_recent_entries):
-    if num_recent_entries is None:
-        return num_xticks
+def _positive_integer(x):
+    i = int(x)
+    if i > 0:
+        return i
     else:
-        assert num_recent_entries > 0 and num_recent_entries <= num_xticks, "Invalid value for --num-recent-entries."
-        return num_recent_entries
+        raise argparse.ArgumentTypeError("Positive integer value required: {}".format(x))
 
-def _smaller(x, y):
-    if y is None or x < y:
-        return x
-    elif x is None or x >= y:
-        return y
-
-def _larger(x, y):
-    if y is None or x > y:
-        return x
-    elif x is None or x <= y:
-        return y
-
-def _yvalues(counts, scales, scale_key, scale_factor):
-    if scale_key is None:
-        return counts
-    elif scale_key in scales:
-        return [count / (scale_factor * scales[scale_key]) for count in counts]
+def _non_zero_float(x):
+    f  = float(x)
+    if f != 0.0:
+        return f
     else:
-        return None
+        raise argparse.ArgumentTypeError("Non-zero float value required: {}".format(x))
 
-def _plot(ax, label_to_values, label_to_scales, xvalue_begin, xvalue_end, scale_key, scale_factor):
-    min_yvalue = None
-    max_yvalue = None
+def _positive_integer_tuple(x):
+    if re.search("^\\d+,\\d+$", x):
+        return tuple([int(x) for x in x.split(",")])
+    else:
+        raise argparse.ArgumentTypeError("Comma-separated tuple of positive integers required: {}".format(x))
 
-    for label, scales in label_to_scales.items():
-        if label in label_to_values:
-            yvalues = _yvalues(
-                    label_to_values[label][xvalue_begin:xvalue_end],
-                    scales,
-                    scale_key,
-                    scale_factor
+def _args():
+    parser = argparse.ArgumentParser(description='Plot data from CSV files.')
+
+    parser.add_argument("--input", "-i", type=str, action="store", required=True,
+            help="Input paths to CSV files.")
+
+    parser.add_argument("--output", "-o", type=str, action="store", required=True,
+            help="Output path to PNG file")
+
+    parser.add_argument("--scale-map", "-m", type=str, action="store", required=True,
+            help="Path to scale map mapping plot keys to scale factors (JSON format: { <row_key>: { <scale_key>: <value>, ... }, ... })")
+
+    parser.add_argument("--scale-key", "-k", type=str, action="store", default=None,
+            help="Key to scale factors to be used, as defined in scale map")
+
+    parser.add_argument("--scale-factor", "-p", action="store", default=1.0,
+            type=_non_zero_float,
+            help="Precision factor applied to scale (use it to avoid precision errors when scaling large y values)")
+
+    parser.add_argument("--num-recent-columns", "-r", action="store", default=None,
+            type=_positive_integer,
+            help="Number of recent columns to plot (default: all)")
+
+    parser.add_argument("--names", "-n", nargs="+", type=str, action="store", default=None,
+            help="Keys of rows to plot (default: all)")
+
+    # Matplotlib options
+
+    parser.add_argument("--title", "-t", type=str, action="store", default="",
+            help="Title option passed to Matplotlib")
+
+    parser.add_argument("--figsize", "-s", action="store", default="15,15",
+            type=_positive_integer_tuple,
+            help="Figsize option passed to Matplotlib, as comma-separated tupel of positive integers")
+
+    parser.add_argument("--dpi", "-d", type=int, action="store", default=80,
+            help="DPI option passed to Matplotlib")
+
+    parser.add_argument("--xlabel", "-x", type=str, action="store", default="",
+            help="Xlabel option passed to Matplotlib")
+
+    parser.add_argument("--ylabel", "-y", type=str, action="store", default="",
+            help="Ylabel option passed to Matplotlib")
+
+    parser.add_argument("--yscale", "-f", type=str, action="store", default=None,
+            help="Yscale option passed to Matplotlib")
+
+    return parser.parse_args()
+
+def _truncated_table(table, row_keys, num_recent_columns):
+    xvalue_begin=(
+            lambda x: x - (num_recent_columns is None and x or num_recent_columns)
+            )(len(table[0])-1)
+
+    assert xvalue_begin >= 0, "Value of --num-recent-columns ({}) must be <= {} for this data.".format(num_recent_columns, len(table[0])-1)
+
+    return [
+            [row[0]] + row[1+xvalue_begin:]
+            for idx, row in enumerate(table)
+            if
+                idx == 0
+                or row_keys is None
+                or row[0] in row_keys
+            ]
+
+def _name_to_scale(json, names, scale_key, scale_factor):
+    return {
+            name: (
+                scale_key is None
+                    and 1.0
+                or scale_key_to_scale[scale_key]
+                ) * scale_factor
+            for name, scale_key_to_scale in json.items()
+            if
+                (
+                    names is None
+                    or name in names
                     )
-
-            if yvalues is not None:
-                min_yvalue = _smaller(min(yvalues), min_yvalue)
-                max_yvalue = _larger(max(yvalues), max_yvalue)
-
-                if len(label.split("/")) > 1:
-                    linestyle = ":"
-                else:
-                    linestyle = "-"
-
-                ax.plot(
-                        yvalues,
-                        label=label,
-                        linestyle=linestyle
+                    and (
+                        scale_key is None
+                        or scale_key in scale_key_to_scale
                         )
+            }
 
-    return min_yvalue, max_yvalue
-
-def _define_xaxis(ax, xticklabels, xlabel, num_recent_entries):
-    xvalue_end = len(xticklabels)
-    xvalue_begin = xvalue_end - _xvalue_offset(len(xticklabels), num_recent_entries)
-
-    ax.set_xticks(np.arange(0, xvalue_end-xvalue_begin))
-    ax.set_xticklabels(xticklabels[xvalue_begin:xvalue_end])
-
+def _define_xaxis(ax, xticks, xticklabels, xlabel):
+    ax.set_xlabel(xlabel)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels(xticklabels)
     ax.tick_params(axis="x", labelrotation=-60)
 
-    ax.set_xlabel(xlabel)
-
-    return xvalue_begin, xvalue_end
-
-def _define_yaxis(ax, min_yvalue, max_yvalue, ysize, yscale, ylabel, scale_key, scale_factor):
+def _define_yaxis(ax, min_yvalue, max_yvalue, ysize, yscale, ylabel):
     if yscale is not None:
         ax.set_yscale(yscale)
     else:
-        if min_yvalue > 0:
-            min_yvalue = 0
-
-        yfraction = round((max_yvalue - min_yvalue) / (ysize * 2))
-        ax.set_yticks(np.arange(min_yvalue, max_yvalue, step=round(yfraction, -(len(str(yfraction))-1))))
+        ax.set_yticks(
+                np.arange(
+                    min_yvalue,
+                    max_yvalue,
+                    step=(lambda x: round(x, -(len(str(x))-1)))(round(max_yvalue / (ysize * 2)))
+                    )
+                )
 
         ax.set_ylim(min_yvalue, max_yvalue)
 
-    ax.set_ylabel(
-            (yscale is not None and yscale + "(" or "")
-            + ylabel
-            + (scale_key is not None and " / " or "")
-            + (scale_factor != 1.0 and " (" or "")
-            + (scale_key is not None and scale_key or "")
-            + (scale_factor != 1.0 and " * " + str(scale_factor) + ")" or "")
-            + (yscale is not None and ")" or "")
-            )
-
+    ax.set_ylabel(ylabel)
     ax.tick_params(right=True, labelright=True)
 
+def _sorted_entries(name_to_scale, name_to_values, names):
+    return [
+            {
+                "name": name,
+                "yvalues": [
+                    value / name_to_scale[name]
+                    for value in name_to_values[name]
+                    ],
+                "linestyle": len(name.split("/")) > 1 and ":" or "-"
+                }
+            for name in sorted(names)
+            ]
+
+def _plot(ax, entries):
+    for entry in entries:
+        ax.plot(
+                entry["yvalues"],
+                label=entry["name"],
+                linestyle=entry["linestyle"]
+                )
+
 def _main(args):
-    with open(args.input, "r") as csvfile:
-        rows = list(csv.reader(csvfile, delimiter=','))
-
-    with open(args.scale_map, "r") as jsonfile:
-        label_to_scales = json.load(jsonfile)
-
     plt.set_cmap("hsv")
 
     _, ax = plt.subplots(
@@ -119,14 +167,83 @@ def _main(args):
             dpi=args.dpi
             )
 
-    xvalue_begin, xvalue_end = _define_xaxis(ax, rows[0][1:], args.xlabel, args.num_recent_entries)
+    with open(args.scale_map, "r") as jsonfile:
+        name_to_scale = _name_to_scale(
+                json.load(jsonfile),
+                args.names,
+                args.scale_key,
+                args.scale_factor
+                )
 
-    min_yvalue, max_yvalue = _plot(ax, {row[0]: [int(n) for n in row[1:]] for row in rows[1:]}, label_to_scales, xvalue_begin, xvalue_end, args.scale_key, args.scale_factor)
+    if args.names is None:
+        names = set(name_to_scale.keys())
+    else:
+        names = set(name_to_scale.keys()).intersection(set(args.names))
 
-    _define_yaxis(ax, min_yvalue, max_yvalue, args.figsize[1], args.yscale, args.ylabel, args.scale_key, args.scale_factor)
+    with open(args.input, "r") as csvfile:
+        table = _truncated_table(
+                list(csv.reader(csvfile, delimiter=',')),
+                names,
+                args.num_recent_columns
+                )
 
-    ax.grid(axis="x", color="black", alpha=.3, linewidth=.5, linestyle="-")
-    ax.grid(axis="y", color="black", alpha=.5, linewidth=.5, linestyle="-")
+    name_to_values = {
+            row[0]: [ float(n) for n in row[1:] ]
+            for row in table[1:]
+            }
+
+    entries = _sorted_entries(
+            name_to_values=name_to_values,
+            name_to_scale=name_to_scale,
+            names=sorted(names.intersection(set(name_to_values.keys())))
+            )
+
+    _plot(
+            ax,
+            entries=entries
+            )
+
+    _define_xaxis(
+            ax,
+            xticks=np.arange(0, len(table[0][1:])),
+            xticklabels=table[0][1:],
+            xlabel=args.xlabel
+            )
+
+    all_yvalues = [ x for entry in entries for x in entry["yvalues"] ]
+
+    _define_yaxis(
+            ax,
+            min_yvalue=(lambda x: 0.0 if args.yscale is None and x > 0.0 else x)(min(all_yvalues)),
+            max_yvalue=max(all_yvalues),
+            ysize=args.figsize[1],
+            yscale=args.yscale,
+            ylabel="".join([
+                (args.yscale is not None and args.yscale + "(" or ""),
+                args.ylabel,
+                (args.scale_key is not None and " / " or ""),
+                (args.scale_factor != 1.0 and " (" or ""),
+                (args.scale_key is not None and args.scale_key or ""),
+                (args.scale_factor != 1.0 and " * " + str(args.scale_factor) + ")" or ""),
+                (args.yscale is not None and ")" or ""),
+                ])
+            )
+
+    ax.grid(
+            axis="x",
+            color="black",
+            alpha=.3,
+            linewidth=.5,
+            linestyle="-",
+            )
+
+    ax.grid(
+            axis="y",
+            color="black",
+            alpha=.5,
+            linewidth=.5,
+            linestyle="-",
+            )
 
     ax.set_title(args.title)
 
@@ -135,48 +252,4 @@ def _main(args):
     plt.savefig(args.output)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Plot data from CSV files.')
-
-    # "Values from rows with identical strings in the key columns are summed (e.g. across administrations)."
-
-    parser.add_argument("--input", "-i", type=str, action="store", required=True,
-            help="Input paths to CSV files.")
-
-    parser.add_argument("--output", "-o", type=str, action="store", required=True,
-            help="Output path to PNG file")
-
-    parser.add_argument("--xlabel", "-x", type=str, action="store", default="",
-            help="Label for x-axis")
-
-    parser.add_argument("--ylabel", "-y", type=str, action="store", default="",
-            help="Label for y-axis")
-
-    parser.add_argument("--scale-key", "-k", type=str, action="store", default=None,
-            help="Key to scale factors to be used, as defined in scale map")
-
-    parser.add_argument("--scale-map", "-m", type=str, action="store", required=True,
-            help="Path to scale map (JASON) mapping plot keys to scale factors")
-
-    parser.add_argument("--scale-factor", "-p", type=float, action="store", default=1.0,
-            help="Precision factor applied to scale (use it to avoid precision errors when scaling large y values)")
-
-    parser.add_argument("--title", "-t", type=str, action="store", default="",
-            help="Title string")
-
-    parser.add_argument("--num-recent-entries", "-r", type=int, action="store", default=None,
-            help="Number of recent entries to plot (default: all)")
-
-    parser.add_argument("--figsize", "-s", action="store", default="15,15",
-            type=lambda x: type(x)==str and re.search("^\d+,\d+$", x) and tuple([int(x) for x in x.split(",")]),
-            help="Figsize option passed to Matplotlib, as comma-separated tupel of integers")
-
-    parser.add_argument("--dpi", "-d", type=int, action="store", default=80,
-            help="DPI option passed to Matplotlib")
-
-    parser.add_argument("--ytickstep", type=int, action="store", default=None,
-            help="Steps for y ticks ")
-
-    parser.add_argument("--yscale", "-f", type=str, action="store", default=None,
-            help="Yscale option passed to Matplotlib")
-
-    _main(parser.parse_args())
+    _main(_args())
