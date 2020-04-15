@@ -96,7 +96,7 @@ def _truncated_table(table, row_keys, num_recent_columns):
                 or row[0] in row_keys
             ]
 
-def _name_to_scale(json, names, scale_key, scale_factor):
+def _name_to_scale(json, select_names, scale_key, scale_factor):
     return {
             name: (
                 scale_key is None
@@ -106,8 +106,8 @@ def _name_to_scale(json, names, scale_key, scale_factor):
             for name, scale_key_to_scale in json.items()
             if
                 (
-                    names is None
-                    or name in names
+                    select_names is None
+                    or name in select_names
                     )
                     and (
                         scale_key is None
@@ -138,7 +138,7 @@ def _define_yaxis(ax, min_yvalue, max_yvalue, ysize, yscale, ylabel):
     ax.set_ylabel(ylabel)
     ax.tick_params(right=True, labelright=True)
 
-def _sorted_entries(name_to_scale, name_to_values, names):
+def _sorted_figdata(name_to_scale, name_to_values):
     return [
             {
                 "name": name,
@@ -148,15 +148,15 @@ def _sorted_entries(name_to_scale, name_to_values, names):
                     ],
                 "linestyle": len(name.split("/")) > 1 and ":" or "-"
                 }
-            for name in sorted(names)
+            for name in sorted(set(name_to_scale.keys()).intersection(set(name_to_values.keys())))
             ]
 
-def _plot(ax, entries):
-    for entry in entries:
+def _plot(ax, figdata):
+    for plotdata in figdata:
         ax.plot(
-                entry["yvalues"],
-                label=entry["name"],
-                linestyle=entry["linestyle"]
+                plotdata["yvalues"],
+                label=plotdata["name"],
+                linestyle=plotdata["linestyle"]
                 )
 
 def _main(args):
@@ -170,38 +170,32 @@ def _main(args):
     with open(args.scale_map, "r") as jsonfile:
         name_to_scale = _name_to_scale(
                 json.load(jsonfile),
-                args.names,
-                args.scale_key,
-                args.scale_factor
+                select_names=args.names,
+                scale_key=args.scale_key,
+                scale_factor=args.scale_factor
                 )
-
-    if args.names is None:
-        names = set(name_to_scale.keys())
-    else:
-        names = set(name_to_scale.keys()).intersection(set(args.names))
 
     with open(args.input, "r") as csvfile:
         table = _truncated_table(
-                list(csv.reader(csvfile, delimiter=',')),
-                names,
-                args.num_recent_columns
+                table=list(csv.reader(csvfile, delimiter=',')),
+                row_keys=name_to_scale.keys(),
+                num_recent_columns=args.num_recent_columns
                 )
 
-    name_to_values = {
-            row[0]: [ float(n) for n in row[1:] ]
-            for row in table[1:]
-            }
-
-    entries = _sorted_entries(
-            name_to_values=name_to_values,
-            name_to_scale=name_to_scale,
-            names=sorted(names.intersection(set(name_to_values.keys())))
+    figdata = _sorted_figdata(
+            name_to_values={
+                row[0]: [ float(n) for n in row[1:] ]
+                for row in table[1:]
+                },
+            name_to_scale=name_to_scale
             )
 
     _plot(
             ax,
-            entries=entries
+            figdata=figdata
             )
+
+    all_yvalues = [ x for plotdata in figdata for x in plotdata["yvalues"] ]
 
     _define_xaxis(
             ax,
@@ -209,8 +203,6 @@ def _main(args):
             xticklabels=table[0][1:],
             xlabel=args.xlabel
             )
-
-    all_yvalues = [ x for entry in entries for x in entry["yvalues"] ]
 
     _define_yaxis(
             ax,

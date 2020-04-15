@@ -33,11 +33,10 @@ def test__truncated_table():
                 [ "bar", 4, 5, 6 ],
                 [ "baz", 7, 8, 9 ],
                 ]
-def test__sorted_entries():
-    assert tableplotter._sorted_entries(
+def test__sorted_figdata():
+    assert tableplotter._sorted_figdata(
             name_to_scale={ "foo": 1.0, "bar": 2.0, "baz": 3.0 },
             name_to_values={ "foo" : [ 1, 2, 3 ], "bar" : [ 4, 5, 6 ], "qux": [ 7, 8, 9 ] },
-            names=[ "foo", "bar" ]
             ) == [
                     {
                         "name": "bar",
@@ -71,7 +70,7 @@ def test__name_to_scale():
 
     assert tableplotter._name_to_scale(
             json=json,
-            names=[ "foo", "bar" ],
+            select_names=[ "foo", "bar" ],
             scale_key="key_2",
             scale_factor=2.0
             ) == {
@@ -81,7 +80,7 @@ def test__name_to_scale():
 
     assert tableplotter._name_to_scale(
             json=json,
-            names=None,
+            select_names=None,
             scale_key="key_2",
             scale_factor=2.0
             ) == {
@@ -92,7 +91,7 @@ def test__name_to_scale():
 
     assert tableplotter._name_to_scale(
             json=json,
-            names=None,
+            select_names=None,
             scale_key="key_3",
             scale_factor=2.0
             ) == {
@@ -102,7 +101,7 @@ def test__name_to_scale():
 
     assert tableplotter._name_to_scale(
             json=json,
-            names=[ "foo", "bar" ],
+            select_names=[ "foo", "bar" ],
             scale_key=None,
             scale_factor=2.0
             ) == {
@@ -112,7 +111,7 @@ def test__name_to_scale():
 
     assert tableplotter._name_to_scale(
             json=json,
-            names=None,
+            select_names=None,
             scale_key=None,
             scale_factor=2.0
             ) == {
