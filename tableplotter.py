@@ -175,12 +175,16 @@ def _main(args):
                 scale_factor=args.scale_factor
                 )
 
+    assert len(name_to_scale.keys()) > 0, "[ERROR] No data in scale map after filtering against names ({}) and scale key ({})".format(args.names, args.scale_key)
+
     with open(args.input, "r") as csvfile:
         table = _truncated_table(
                 table=list(csv.reader(csvfile, delimiter=',')),
                 row_keys=name_to_scale.keys(),
                 num_recent_columns=args.num_recent_columns
                 )
+
+    assert len(table) > 1, "[ERROR] No data in input CSV"
 
     figdata = _sorted_figdata(
             name_to_values={
